@@ -7,6 +7,7 @@ A tldraw-style **laser pointer** for Obsidian notes, ported from tldraw's laser 
 - **Toggle trail** command (also on the crosshair ribbon icon) switches the pointer tool on for the focused editor.
 - Drag to point; the trail holds for a short "hold time" after you lift the pointer, then all strokes in the session fade out together (tldraw's grouped, ease-in fade).
 - **Esc** or **k** exits back to typing (mirrors tldraw's `onCancel`).
+- **Floating color toolbar**: while the tool is on, a pill at the top of the pane shows swatches from tldraw's default palette (with proper light/dark variants, like tldraw's themes). Click one to switch the trail color immediately; the *Laser* swatch restores the tldraw default red.
 - Trails belong to the note they were drawn on: switching notes clears stale trails.
 - Works in **both editing modes** (source / Live Preview) and **reading mode** — each markdown pane gets its own overlay automatically as you switch modes.
 - Everything is per-session and in-memory: no files, no note content, no undo history touched.
@@ -53,7 +54,7 @@ Optional setting *"Toggle with the plain k key"* lets the bare `k` key toggle th
 
 | Setting | Default (tldraw values) |
 | --- | --- |
-| Trail color | `hsl(0, 100%, 50%)` (tldraw `laser` theme color) |
+| Trail color | `hsl(0, 100%, 50%)` (tldraw `laser` theme color); also choosable from the editor's floating toolbar (tldraw palette) |
 | Trail width | `4` px |
 | Hold time | `1200` ms (tldraw `laserDelayMs`) |
 | Fade duration | `500` ms (tldraw `laserFadeoutMs`) |

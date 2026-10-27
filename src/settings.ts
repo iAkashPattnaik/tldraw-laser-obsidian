@@ -43,7 +43,7 @@ export class LaserSettingTab extends PluginSettingTab {
 			},
 			{
 				name: 'Trail color',
-				desc: 'tldraw default: pure red.',
+				desc: 'tldraw default: pure red. The floating toolbar in the editor also picks colors from tldraw\'s palette.',
 				control: {
 					key: 'color',
 					type: 'color',

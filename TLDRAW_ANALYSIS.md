@@ -11,8 +11,9 @@ Source of truth: the tldraw checkout at `..\tldraw` in this workspace. The laser
 | `packages/tldraw/src/lib/tools/LaserTool/childStates/Lasering.ts` | Lasering state: pushes points per move, `extendSession()` **every tick** while a stroke is in progress, completes on pointer-up |
 | `packages/editor/src/lib/editor/managers/ScribbleManager/ScribbleManager.ts` | Session engine: sessions hold scribble items; `tick(elapsed)` runs per animation frame |
 | `packages/editor/src/lib/options.ts` | `laserDelayMs: 1200`, `laserFadeoutMs: 500` defaults |
-| `packages/editor/src/lib/editor/managers/ThemeManager/defaultThemes.ts` | Laser color: `laser: 'hsl(0, 100%, 50%)'` (light and dark themes) |
+| `packages/editor/src/lib/editor/managers/ThemeManager/defaultThemes.ts` | Laser color: `laser: 'hsl(0, 100%, 50%)'` (light and dark themes). Also the palette source: the floating toolbar's swatches use these themes' `solid` values, ordered like tldraw's color swatch UI |
 | `packages/tldraw/src/lib/overlays/ScribbleOverlayUtil.ts` | Render: `perfect-freehand` outlines, streamlining, Path2D caching, dot fallback |
+| `packages/tldraw/src/lib/ui/hud/StyleWidget.tsx` | The color-picking UI the toolbar mirrors: swatch row, tldraw UI order (black, grey, light-violet, violet, blue, light-blue, light-green, green, light-red, red, orange, yellow) |
 
 ## Laser-specific constants (upstream → port)
 
@@ -52,3 +53,7 @@ Source of truth: the tldraw checkout at `..\tldraw` in this workspace. The laser
 - **Persistence**: upstream scribbles live in the reactive store; the port keeps them purely in memory per editor view. Nothing reaches the store/DOM of the markdown note.
 - **Editor pointer capture**: while the laser owns the pointer, the CM content is made `contenteditable="false"` (tri-state saved/restored) so text can't be selected or mutated; tldraw instead just isn't editable under the canvas at all.
 - **Settings**: user-tunable color/width/hold/fade/opacity wrap the upstream defaults; defaults equal upstream exactly.
+
+## Color toolbar (tldraw palette)
+
+The floating pill carries a `Laser` swatch (the theme-constant `hsl(0,100%,50%)` default) plus the 12 default theme colors in tldraw's UI order. Values are the `solid` variants from `defaultThemes.ts` for each theme — e.g. black is `#1d1d1d` in light and `#f2f2f2` in dark, matching what tldraw's StyleWidget shows per theme. Swatch chips carry both values as CSS variables and `styles.css` picks per `theme-light`/`theme-dark`, so chips re-tint live on theme switches. Clicking a swatch stores the current theme's value (settings remain a plain CSS color string); a name/hex mapper (`src/palette.ts`) re-resolves palette values to the active theme at stroke time, so "black" follows theme switches. Arbitrary custom colors from the settings tab pass through untouched.

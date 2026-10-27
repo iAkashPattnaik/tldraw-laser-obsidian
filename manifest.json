@@ -1,7 +1,7 @@
 {
 	"id": "md-laser",
 	"name": "Laser Pointer",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"minAppVersion": "1.13.0",
 	"description": "tldraw laser pointer for notes: a red pointer trail you drag over the page. Trails hold, then fade - nothing is ever written to the note.",
 	"author": "akash",

@@ -66,12 +66,43 @@
 	display: flex;
 }
 
-/* dot marker in the tag, tinted like the laser */
+/* dot marker in the tag, tinted with the current trail ink (set by
+   syncSwatches via the --laser-ink variable) */
 .mdh-tag .-svg-icon,
 .mdh-tag svg {
 	width: 14px;
 	height: 14px;
-	color: hsl(0, 100%, 50%);
+	color: var(--laser-ink, hsl(0, 100%, 50%));
+}
+
+/* -------------------------------------------------------------- swatches */
+
+/* tldraw palette inside the pill; buttons opt back into pointer events
+   because the pill itself stays click-transparent for canvas strokes. */
+.mdh-swatches {
+	display: flex;
+	align-items: center;
+	gap: 3px;
+}
+
+.mdh-swatch {
+	pointer-events: auto;
+	flex: none;
+	width: 12px;
+	height: 12px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	background: var(--laser-swatch-light, hsl(0, 100%, 50%));
+	cursor: pointer;
+}
+
+.theme-dark .mdh-swatch {
+	background: var(--laser-swatch-dark, hsl(0, 100%, 50%));
+}
+
+.mdh-swatch.is-current {
+	box-shadow: 0 0 0 2px var(--laser-ink, hsl(0, 100%, 50%));
 }
 
 /* --------------------------------------------------------------- status */

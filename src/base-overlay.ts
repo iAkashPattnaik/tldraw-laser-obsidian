@@ -1,6 +1,7 @@
-import { setIcon } from 'obsidian'
+import { setIcon, setTooltip } from 'obsidian'
 import { getStroke } from 'perfect-freehand'
 import { ScribbleManager, ScribbleSessionOptions } from './scribble'
+import { LASER_SWATCHES, resolveLaserColor, swatchNameOf } from './palette'
 import type { LaserHostContext } from './host'
 import type { MdLaserPlugin } from './main'
 import type { LaserScribble, ScribblePoint } from './types'
@@ -128,7 +129,8 @@ export abstract class BaseLaserOverlay {
 		const canvas = layer.createEl('canvas', { cls: 'mdh-canvas' })
 		const tag = host.createDiv({ cls: 'mdh-tag' })
 		setIcon(tag, 'crosshair')
-		tag.createSpan({ text: 'Laser - esc or k to exit' })
+		this.buildSwatches(tag)
+		tag.createSpan({ text: 'Esc to exit' })
 
 		this.layer = layer
 		this.canvas = canvas
@@ -150,6 +152,48 @@ export abstract class BaseLaserOverlay {
 		this.syncSize()
 	}
 
+	private isDark(): boolean {
+		return this.cx.host().ownerDocument.body.classList.contains('theme-dark')
+	}
+
+	/**
+	 * The floating toolbar: a row of tldraw-palette swatches inside the state
+	 * pill (between the icon and the exit hint). The pill itself stays
+	 * click-transparent so canvas strokes are never blocked; buttons
+	 * re-enable pointer events individually in styles.css.
+	 */
+	private buildSwatches(tag: HTMLElement) {
+		const row = tag.createDiv({ cls: 'mdh-swatches' })
+		const doc = tag.ownerDocument
+		for (const entry of LASER_SWATCHES) {
+			const button = row.createEl('button', { cls: 'mdh-swatch' })
+			button.type = 'button'
+			setTooltip(button, entry.label)
+			button.dataset.laserColor = entry.name
+			// Both theme values are provided as CSS variables; styles.css picks
+			// by body theme class, so chips re-tint live on theme changes.
+			button.setCssProps({
+				'--laser-swatch-light': entry.light,
+				'--laser-swatch-dark': entry.dark,
+			})
+			button.addEventListener('click', () => {
+				const isDark = doc.body.classList.contains('theme-dark')
+				void this.plugin.updateSettings({ color: resolveLaserColor(entry.light, isDark) })
+			})
+		}
+	}
+
+	/** Highlight the current color's swatch and tint the pill icon with the ink. */
+	private syncSwatches() {
+		const tag = this.tag
+		if (!tag) return
+		tag.setCssProps({ '--laser-ink': resolveLaserColor(this.plugin.settings.color, this.isDark()) })
+		const current = swatchNameOf(this.plugin.settings.color)
+		for (const chip of Array.from(tag.querySelectorAll<HTMLElement>('.mdh-swatch'))) {
+			chip.classList.toggle('is-current', chip.dataset.laserColor === current)
+		}
+	}
+
 	private registerListeners() {
 		const canvas = this.canvas
 		if (!canvas) return
@@ -165,6 +209,7 @@ export abstract class BaseLaserOverlay {
 		canvas.addEventListener('lostpointercapture', lost)
 
 		const unState = this.plugin.state.subscribe(() => this.syncMode())
+		const unSettings = this.plugin.onSettingsChanged(() => this.syncSwatches())
 
 		this.disposers.push(
 			() => {
@@ -173,7 +218,8 @@ export abstract class BaseLaserOverlay {
 				canvas.removeEventListener('pointerup', up)
 				canvas.removeEventListener('lostpointercapture', lost)
 			},
-			unState
+			unState,
+			unSettings
 		)
 
 		this.registerKeys()
@@ -254,6 +300,9 @@ export abstract class BaseLaserOverlay {
 		const active = this.plugin.state.active
 		this.layer.classList.toggle('is-active', active)
 		this.tag?.classList.toggle('is-open', active)
+		// Refreshing here re-resolves the ink + highlight for the current
+		// theme whenever the tool is opened (no theme observer needed).
+		this.syncSwatches()
 		const host = this.cx.host()
 		host.classList.toggle('mdh-mode-active', active)
 		if (active) {
@@ -317,15 +366,16 @@ export abstract class BaseLaserOverlay {
 
 	/**
 	 * LaserTool.startScribble: sketch token in the requested style - tldraw
-	 * laser scribbles are color 'laser' (theme red), 0.7 opacity, size 4 px,
-	 * taper off.
+	 * laser scribbles use the theme's `laser` color (pure red) by default,
+	 * 0.7 opacity, size 4 px, taper off. Palette names resolve to the host
+	 * document's current theme value at stroke time.
 	 */
 	private startScribble(): { sessionId: string; scribbleId: string } | null {
 		const manager = this.manager
 		if (!manager) return null
 		const sessionId = this.getSessionId()
 		const scribble = manager.addScribbleToSession(sessionId, {
-			color: this.plugin.settings.color,
+			color: resolveLaserColor(this.plugin.settings.color, this.isDark()),
 			opacity: this.plugin.settings.opacity,
 			size: this.plugin.settings.width,
 			taper: false,
