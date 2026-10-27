@@ -66,6 +66,18 @@
 	display: flex;
 }
 
+/* Top-right dock (Toolbar position setting); base .mdh-tag is top center. */
+.mdh-tag.mdh-tag-right {
+	left: auto;
+	right: 10px;
+	transform: none;
+}
+
+/* Keep ultra-narrow panes from pushing the pill outside the view. */
+.mdh-tag {
+	max-width: calc(100% - 16px);
+}
+
 /* dot marker in the tag, tinted with the current trail ink (set by
    syncSwatches via the --laser-ink variable) */
 .mdh-tag .-svg-icon,
@@ -77,22 +89,23 @@
 
 /* -------------------------------------------------------------- swatches */
 
-/* tldraw palette inside the pill; buttons opt back into pointer events
-   because the pill itself stays click-transparent for canvas strokes. */
+/* tldraw palette inside the pill, as circular swatches like tldraw's
+   StyleWidget; buttons opt back into pointer events because the pill itself
+   stays click-transparent for canvas strokes. */
 .mdh-swatches {
 	display: flex;
 	align-items: center;
-	gap: 3px;
+	gap: 4px;
 }
 
 .mdh-swatch {
 	pointer-events: auto;
 	flex: none;
-	width: 12px;
-	height: 12px;
+	width: 13px;
+	height: 13px;
 	padding: 0;
 	border: 1px solid var(--background-modifier-border);
-	border-radius: 3px;
+	border-radius: 50%;
 	background: var(--laser-swatch-light, hsl(0, 100%, 50%));
 	cursor: pointer;
 }

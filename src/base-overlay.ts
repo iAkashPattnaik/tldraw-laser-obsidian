@@ -129,6 +129,7 @@ export abstract class BaseLaserOverlay {
 		const canvas = layer.createEl('canvas', { cls: 'mdh-canvas' })
 		const tag = host.createDiv({ cls: 'mdh-tag' })
 		setIcon(tag, 'crosshair')
+		this.applyTagPosition(tag)
 		this.buildSwatches(tag)
 		tag.createSpan({ text: 'Esc to exit' })
 
@@ -200,11 +201,17 @@ export abstract class BaseLaserOverlay {
 	private syncSwatches() {
 		const tag = this.tag
 		if (!tag) return
+		// The pill's dock also follows the settings live.
+		this.applyTagPosition(tag)
 		tag.setCssProps({ '--laser-ink': resolveLaserColor(this.plugin.settings.color, this.isDark()) })
 		const current = swatchNameOf(this.plugin.settings.color)
 		for (const chip of Array.from(tag.querySelectorAll<HTMLElement>('.mdh-swatch'))) {
 			chip.classList.toggle('is-current', chip.dataset.laserColor === current)
 		}
+	}
+
+	private applyTagPosition(tag: HTMLElement) {
+		tag.classList.toggle('mdh-tag-right', this.plugin.settings.toolbarPosition === 'top-right')
 	}
 
 	private registerListeners() {

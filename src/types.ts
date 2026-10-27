@@ -32,9 +32,14 @@ export interface LaserScribble {
 	state: ScribbleState
 }
 
+/** Where the floating toolbar pill sits along the top of the pane. */
+export type LaserToolbarPosition = 'top-center' | 'top-right'
+
 export interface LaserSettings {
 	/** Resolved CSS color for the ink. tldraw theme: hsl(0, 100%, 50%). */
 	color: string
+	/** Where the floating toolbar is docked. */
+	toolbarPosition: LaserToolbarPosition
 	/** Stroke width px (tldraw laser: 4). */
 	width: number
 	/** How long a finished trail holds before fading (tldraw laserDelayMs). */

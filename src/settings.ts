@@ -10,6 +10,7 @@ import type { LaserSettings } from './types'
  */
 export const DEFAULT_SETTINGS: LaserSettings = {
 	color: 'hsl(0, 100%, 50%)',
+	toolbarPosition: 'top-center',
 	width: 4,
 	delayMs: 1200,
 	fadeMs: 500,
@@ -48,6 +49,19 @@ export class LaserSettingTab extends PluginSettingTab {
 					key: 'color',
 					type: 'color',
 					defaultValue: def.color,
+				},
+			},
+			{
+				name: 'Toolbar position',
+				desc: 'Where the floating laser toolbar sits while the tool is on. tldraw-style: centered over the page or tucked into the top-right corner.',
+				control: {
+					key: 'toolbarPosition',
+					type: 'dropdown',
+					options: {
+						'top-center': 'Top center',
+						'top-right': 'Top right',
+					},
+					defaultValue: def.toolbarPosition,
 				},
 			},
 			{
@@ -114,6 +128,7 @@ export class LaserSettingTab extends PluginSettingTab {
 
 	getControlValue(key: string): unknown {
 		if (key === 'color') return this.plugin.settings.color
+		if (key === 'toolbarPosition') return this.plugin.settings.toolbarPosition
 		if (key === 'width') return this.plugin.settings.width
 		if (key === 'delayMs') return this.plugin.settings.delayMs
 		if (key === 'fadeMs') return this.plugin.settings.fadeMs
@@ -127,6 +142,11 @@ export class LaserSettingTab extends PluginSettingTab {
 			case 'color':
 				await this.plugin.updateSettings({ color: value as string })
 				break
+			case 'toolbarPosition': {
+				const position = value === 'top-right' ? 'top-right' : 'top-center'
+				await this.plugin.updateSettings({ toolbarPosition: position })
+				break
+			}
 			case 'width':
 				await this.plugin.updateSettings({ width: value as number })
 				break
