@@ -1,0 +1,32 @@
+{
+	"name": "md-laser",
+	"version": "1.1.0",
+	"description": "tldraw laser pointer for Obsidian notes. Drag a red pointer trail over the page; it holds, then fades. Nothing is written to the note.",
+	"main": "main.js",
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"lint": "eslint .",
+		"smoke": "bun scripts/smoke.ts",
+		"loadcheck": "node scripts/load-harness.mjs"
+	},
+	"keywords": [],
+	"license": "MIT",
+	"dependencies": {
+		"perfect-freehand": "^1.2.2"
+	},
+	"devDependencies": {
+		"@codemirror/state": "6.7.6",
+		"@codemirror/view": "6.43.13",
+		"@types/node": "^22.15.17",
+		"eslint": "^9.39.4",
+		"eslint-plugin-obsidianmd": "^0.4.0",
+		"esbuild": "0.25.5",
+		"globals": "^17.6.0",
+		"jiti": "^2.6.1",
+		"obsidian": "latest",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "^8.59.1"
+	}
+}

@@ -1,0 +1,68 @@
+# Release workflow: builds the plugin with bun and attaches main.js,
+# manifest.json and styles.css to a GitHub release when a tag is pushed.
+#
+# Usage:
+#   git tag 1.2.0        # (or v1.2.0) — must match manifest.json/version
+#   git push origin 1.2.0
+
+name: Release Obsidian plugin
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN_ID: md-laser
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint and smoke-test
+        run: |
+          bun run lint
+          bun run smoke
+
+      - name: Build production bundle
+        run: bun run build
+
+      - name: Validate manifest version against the tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::manifest.json version ($MANIFEST_VERSION) does not match tag ($GITHUB_REF_NAME)"
+            exit 1
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_ID }}
+          path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            main.js
+            manifest.json
+            styles.css
+          generate_release_notes: true

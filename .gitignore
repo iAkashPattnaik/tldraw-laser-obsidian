@@ -1,0 +1,20 @@
+# editor / ide
+.vscode/
+.idea/
+*.iml
+
+# node
+node_modules/
+
+# bundled build output ships in GitHub releases, not in the repo
+main.js
+*.map
+
+# per-vault plugin data
+data.json
+
+# this project is bun-only: bun.lock is the lockfile of record
+package-lock.json
+
+# os
+.DS_Store

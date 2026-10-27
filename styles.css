@@ -1,0 +1,91 @@
+/*
+ * Laser Pointer (tldraw-style) styles.
+ *
+ * A viewport-sized canvas layer above the text only captures the pointer while
+ * the laser tool is active; a small centered tag shows the tool state. The
+ * same classes are used for CodeMirror editors (source mode / live preview)
+ * and reading-mode views.
+ */
+
+/* ---------------------------------------------------------------- layer */
+
+/* The canvas layer + tag are positioned against the editor viewport;
+   mdh-host makes the host the positioning context. */
+.mdh-host {
+	position: relative;
+}
+
+.mdh-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 30;
+	pointer-events: none;
+}
+
+.mdh-canvas {
+	display: block;
+	pointer-events: none;
+}
+
+/* Only the active layer captures the pointer, so normal editing is untouched. */
+.mdh-layer.is-active .mdh-canvas {
+	pointer-events: auto;
+	cursor: crosshair;
+	touch-action: none;
+}
+
+/* Crosshair cursor while the tool owns the pointer. */
+.mdh-mode-active .cm-content,
+.mdh-mode-active .cm-gutters,
+.mdh-mode-active.mdh-host {
+	cursor: crosshair;
+}
+
+/* ------------------------------------------------------------------ tag */
+
+.mdh-tag {
+	position: absolute;
+	top: 6px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 40;
+	display: none;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	background: var(--background-secondary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	pointer-events: none;
+}
+
+.mdh-tag.is-open {
+	display: flex;
+}
+
+/* dot marker in the tag, tinted like the laser */
+.mdh-tag .-svg-icon,
+.mdh-tag svg {
+	width: 14px;
+	height: 14px;
+	color: hsl(0, 100%, 50%);
+}
+
+/* --------------------------------------------------------------- status */
+
+.mdh-status {
+	color: hsl(0, 100%, 60%);
+	font-weight: var(--font-semibold);
+	user-select: none;
+}
+
+/* ------------------------------------------------------------- settings */
+
+.mdh-settings-usage {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	padding: 0 0 8px 0;
+}
