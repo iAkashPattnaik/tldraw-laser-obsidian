@@ -70,6 +70,10 @@ export abstract class BaseLaserOverlay {
 	/** Last rendered snapshot; redrawn on scroll/resize. */
 	private lastScribbles: LaserScribble[] = []
 	private resizeObserver: ResizeObserver | null = null
+	/** Edge tab shown when the corner panel is hidden; null until attached. */
+	private panelTab: HTMLButtonElement | null = null
+	/** Corner-panel visibility (transient; resets when the tool exits). */
+	private panelHidden = false
 
 	constructor(
 		private readonly plugin: MdLaserPlugin,
@@ -100,9 +104,12 @@ export abstract class BaseLaserOverlay {
 		this.cx.host().classList.remove('mdh-host', 'mdh-mode-active')
 		this.layer?.remove()
 		this.tag?.remove()
+		this.panelTab?.remove()
 		this.layer = null
 		this.canvas = null
 		this.tag = null
+		this.panelTab = null
+		this.panelHidden = false
 		this.pathCache.clear()
 	}
 
@@ -128,10 +135,24 @@ export abstract class BaseLaserOverlay {
 		const layer = host.createDiv({ cls: 'mdh-layer' })
 		const canvas = layer.createEl('canvas', { cls: 'mdh-canvas' })
 		const tag = host.createDiv({ cls: 'mdh-tag' })
-		setIcon(tag, 'crosshair')
+		const header = tag.createDiv({ cls: 'mdh-tag-header' })
+		setIcon(header, 'crosshair')
+		const hideButton = header.createEl('button', { cls: 'mdh-hide' })
+		hideButton.type = 'button'
+		setTooltip(hideButton, 'Hide toolbar')
+		setIcon(hideButton, 'chevron-right')
+		hideButton.addEventListener('click', () => this.setPanelHidden(true))
 		this.applyTagPosition(tag)
 		this.buildSwatches(tag)
-		tag.createSpan({ text: 'Esc to exit' })
+		tag.createSpan({ cls: 'mdh-tag-hint', text: 'Esc to exit' })
+
+		// Edge tab that slides the corner panel back in after hiding.
+		const tab = host.createEl('button', { cls: 'mdh-panel-tab' })
+		tab.type = 'button'
+		setTooltip(tab, 'Show toolbar')
+		setIcon(tab, 'chevron-left')
+		tab.addEventListener('click', () => this.setPanelHidden(false))
+		this.panelTab = tab
 
 		this.layer = layer
 		this.canvas = canvas
@@ -211,7 +232,24 @@ export abstract class BaseLaserOverlay {
 	}
 
 	private applyTagPosition(tag: HTMLElement) {
-		tag.classList.toggle('mdh-tag-right', this.plugin.settings.toolbarPosition === 'top-right')
+		const right = this.plugin.settings.toolbarPosition === 'top-right'
+		tag.classList.toggle('mdh-tag-right', right)
+		// Leaving the corner dock also restores the (hidden) panel state.
+		if (!right) this.setPanelHidden(false)
+	}
+
+	/**
+	 * Slide the corner panel off-screen (or pull it back via the edge tab).
+	 * Center-docked pills never hide, and the tab only appears for the corner
+	 * dock while the tool is on.
+	 */
+	private setPanelHidden(hidden: boolean) {
+		this.panelHidden = hidden
+		this.tag?.classList.toggle('mdh-hidden', hidden)
+		this.panelTab?.classList.toggle(
+			'mdh-show',
+			hidden && this.plugin.settings.toolbarPosition === 'top-right'
+		)
 	}
 
 	private registerListeners() {
@@ -382,6 +420,8 @@ export abstract class BaseLaserOverlay {
 			// Tool release does not clear already-fading trails (matches tldraw
 			// switching away from the laser while scribbles dissolve).
 			this.cancelLasering(true)
+			// The corner panel also re-opens for the next session.
+			this.setPanelHidden(false)
 		}
 	}
 

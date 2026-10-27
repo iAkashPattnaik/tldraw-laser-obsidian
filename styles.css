@@ -60,31 +60,138 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	pointer-events: none;
+	/* Keep ultra-narrow panes from pushing the pill outside the view. */
+	max-width: calc(100% - 16px);
+	transition:
+		transform 0.2s ease,
+		opacity 0.2s ease;
 }
 
 .mdh-tag.is-open {
 	display: flex;
 }
 
-/* Top-right dock (Toolbar position setting); base .mdh-tag is top center. */
-.mdh-tag.mdh-tag-right {
-	left: auto;
-	right: 10px;
-	transform: none;
+/* Icon + (corner panel only) hide button. */
+.mdh-tag-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 }
 
-/* Keep ultra-narrow panes from pushing the pill outside the view. */
-.mdh-tag {
-	max-width: calc(100% - 16px);
+/* Hide button: rendered only in the corner panel. */
+.mdh-tag .mdh-hide {
+	display: none;
+	pointer-events: auto;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: none;
+	padding: 2px;
+	color: var(--text-muted);
+	cursor: pointer;
 }
 
-/* dot marker in the tag, tinted with the current trail ink (set by
-   syncSwatches via the --laser-ink variable) */
+.mdh-tag .mdh-hide:hover {
+	color: var(--text-normal);
+}
+
+/* Crosshair icon tinted with the current trail ink (set by syncSwatches
+   via the --laser-ink variable); only the header icon, not the chevrons. */
 .mdh-tag .-svg-icon,
 .mdh-tag svg {
 	width: 14px;
 	height: 14px;
+}
+
+.mdh-tag-header > .-svg-icon,
+.mdh-tag-header > svg {
 	color: var(--laser-ink, hsl(0, 100%, 50%));
+}
+
+/* --------------------------------------------------- corner (top-right) panel */
+
+/* The top-right dock renders as a vertical tldraw-style panel: a 4-column
+   grid of circular swatches, plus a hide button that slides it off-screen. */
+.mdh-tag.mdh-tag-right {
+	top: 12px;
+	right: 12px;
+	left: auto;
+	transform: none;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 10px;
+	padding: 8px 12px 10px;
+	border-radius: 12px;
+	min-width: 128px;
+	max-width: none;
+}
+
+.mdh-tag.mdh-tag-right .mdh-hide {
+	display: flex;
+}
+
+.mdh-tag.mdh-tag-right .mdh-swatches {
+	display: grid;
+	grid-template-columns: repeat(4, 16px);
+	justify-content: space-between;
+	align-content: start;
+}
+
+.mdh-tag.mdh-tag-right .mdh-swatch {
+	width: 16px;
+	height: 16px;
+}
+
+.mdh-tag.mdh-tag-right .mdh-tag-hint {
+	text-align: center;
+}
+
+/* Hidden state: slide the panel off the right edge. */
+.mdh-tag.mdh-tag-right.mdh-hidden {
+	transform: translateX(calc(100% + 20px));
+	opacity: 0;
+}
+
+/* Unhide affordance: a left half-circle pinned to the top-right screen edge
+   with a '<' chevron. Shown only while the tool is on, the corner panel is
+   docked, and the panel was hidden. */
+.mdh-panel-tab {
+	position: absolute;
+	top: 14px;
+	right: 0;
+	z-index: 40;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 30px;
+	padding: 0 2px 0 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-right: none;
+	border-radius: 15px 0 0 15px;
+	background: var(--background-secondary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-muted);
+	cursor: pointer;
+	pointer-events: none;
+	transform: translateX(100%);
+	opacity: 0;
+	visibility: hidden;
+	transition:
+		transform 0.2s ease,
+		opacity 0.2s ease;
+}
+
+.mdh-mode-active .mdh-panel-tab.mdh-show {
+	pointer-events: auto;
+	transform: none;
+	opacity: 1;
+	visibility: visible;
+}
+
+.mdh-panel-tab svg {
+	width: 14px;
+	height: 14px;
 }
 
 /* -------------------------------------------------------------- swatches */
