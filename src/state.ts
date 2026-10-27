@@ -3,9 +3,8 @@ import { LaserMode } from './types'
 type ModeListener = () => void
 
 /**
- * Tool state shared by all open editors, mirroring tldraw's two-state laser
- * tool (idle / lasering lives per overlay): a single switch for whether the
- * laser owns the pointer across editors.
+ * Tool state shared by all open editors (a single switch for whether the
+ * laser owns the pointer); the per-editor lasers live in the overlays.
  */
 export class LaserState {
 	private listeners = new Set<ModeListener>()

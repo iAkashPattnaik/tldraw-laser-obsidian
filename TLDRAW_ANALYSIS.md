@@ -1,6 +1,8 @@
-# tldraw → Obsidian: laser pointer port notes
+# tldraw → Obsidian: laser pointer design notes
 
-Source of truth: the tldraw checkout at `..\tldraw` in this workspace. The laser pointer feature spans three subsystems — a state-machine tool, a scribble session manager, and an overlay renderer — all of which were ported into the `md-laser` Obsidian plugin.
+Source of truth for this document: the tldraw checkout at `..\tldraw` in this workspace, analyzed (and once followed closely by an earlier iteration of this plugin). The laser pointer feature spans three subsystems — a state-machine tool, a scribble session manager, and an overlay renderer — described here as a behavior specification.
+
+**Implementation note:** the code in this repo is an independent implementation of the behavior documented below (see `src/trail-engine.ts` and the tool layer in `src/base-overlay.ts`); it does not copy tldraw's source or carry it as a dependency. tldraw's own code lives only in the local `..\tldraw` checkout, which is not distributed with this project.
 
 ## Upstream files analyzed
 
@@ -23,7 +25,7 @@ Source of truth: the tldraw checkout at `..\tldraw` in this workspace. The laser
 | Scribble | color `hsl(0,100%,50%)`, `opacity 0.7`, `size 4`, `taper false` | identical |
 | `laserDelayMs` | 1200 | hold-time setting (1200) |
 | `laserFadeoutMs` | 500 | fade-duration setting (500) |
-| Streamline | `0.32` | `STREAMLINE = 0.32` in `src/overlay.ts` |
+| Streamline | `0.32` | `STREAMLINE = 0.32` in `src/base-overlay.ts` |
 | Path cache | per-scribble key on len/last point/zoom/size/taper/state, cap 500 | same key set (zoom fixed at 1 — editor px = screen px) |
 | Fade easing | `ease-in` (grouped) | identical |
 
@@ -36,8 +38,8 @@ Source of truth: the tldraw checkout at `..\tldraw` in this workspace. The laser
 5. **Idle timeout auto-stop**: `idleTimeoutMs > 0` schedules `stopSession`; every accepted point and every `extendSession()` (called while a stroke is in progress — `Lasering.onTick`) resets it. Between strokes nothing extends it, so a released trail fades after the hold time.
 6. **Grouped ease-in fade (#fade)**: on stop, `totalPointsAtFadeStart` is captured; per tick `targetRemoved = floor(easedProgress * total)`, points are shifted off the start across items in order, `Math.max(1, …)` guarantees forward progress, and leftover points are zeroed at `fadeElapsed >= fadeDurationMs`.
 7. **Session completion**: a session goes `complete` when no items have points; completed sessions are deleted in the same tick.
-8. **Clear on page change (#10449)**: upstream clears sessions whose page differs from the current page inside `tick()`. The port clears the manager when the editor's `editorInfoField.file` changes.
-9. **Cancel semantics**: `LaserTool.onCancel` clears the active session; a bare second cancel exits the tool. Esc/k in the port does exactly this (exit + dismiss the in-flight trail; already-fading trails continue fading).
+8. **Clear on page change (#10449)**: upstream clears sessions whose page differs from the current page inside `tick()`. The overlay clears the engine when the editor's `editorInfoField.file` changes.
+9. **Cancel semantics**: `LaserTool.onCancel` clears the active session; a bare second cancel exits the tool. Esc/k in this plugin does exactly this (exit + dismiss the in-flight trail; already-settled trails continue draining).
 10. **Cancel-while-lasering of old build note**: switching away from the tool (`syncMode → exit`) keeps fading trails, matching tldraw's tool-switch behavior, and only the in-flight stroke is marked complete/dropped.
 
 ## Rendering pipeline (ScribbleOverlayUtil → canvas)

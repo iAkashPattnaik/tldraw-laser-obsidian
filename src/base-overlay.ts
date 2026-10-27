@@ -1,33 +1,34 @@
 import { setIcon, setTooltip } from 'obsidian'
 import { getStroke } from 'perfect-freehand'
-import { ScribbleManager, ScribbleSessionOptions } from './scribble'
+import { TrailEngine } from './trail-engine'
 import { LASER_SWATCHES, resolveLaserColor, swatchNameOf } from './palette'
+import type { TrailSessionOptions, TrailStroke } from './trail-engine'
 import type { LaserHostContext } from './host'
 import type { MdLaserPlugin } from './main'
-import type { LaserScribble, ScribblePoint } from './types'
+import type { TrailPoint } from './types'
 
-/** tldraw's EASINGS.linear. */
+/** Input easing for perfect-freehand's stroke start (no shaping). */
 const LINEAR = (t: number): number => t
 
-// Port of tldraw's ScribbleOverlayUtil options + render pipeline (see
-// overlays/ScribbleOverlayUtil.ts): streamline 0.32, per-scribble Path2D cache,
-// dot fallback for tiny strokes.
+/**
+ * How aggressively perfect-freehand simplifies raw input into its outline.
+ * 0.32 sits between raw input (0) and smooth tracking (0.5); the laser's
+ * trails are quick flicks, so they need smoothing without much lag.
+ */
 const STREAMLINE = 0.32
-const CACHE_SIZE = 500
 
-interface ScribbleCacheEntry {
-	len: number
-	lastX: number
-	lastY: number
-	size: number
-	taper: boolean
-	state: string
+/** Invalidate every cached outline once the whole cache grows past this. */
+const CACHE_LIMIT = 400
+
+interface OutlineStamp {
+	stamp: string
 	path: Path2D
 }
 
-interface LaseringState {
-	sessionId: string
-	scribbleId: string
+/** Which trail the pointer is currently feeding. */
+interface FeedState {
+	sessionId: number
+	strokeId: number
 }
 
 /**
@@ -35,18 +36,19 @@ interface LaseringState {
  * CodeMirror editor in source mode/Live Preview, or a markdown leaf's reading
  * view - reading mode has no CodeMirror, hence the separate host context).
  *
- * Structure follows tldraw's laser feature end-to-end: a `ScribbleManager`
- * (ported manager) holds sessions; pointer drags speak the LaserTool protocol
- * (startScribble -> addPointToSession per move -> complete on release); a
- * single rAF loop drives tick() and canvas rendering like the app's overlay.
- * Trails hold for laserDelayMs after the last activity, then fade as one
- * grouped sequence over laserFadeoutMs. Nothing persists.
+ * With the tool on, pointer drags feed a transient trail: strokes enqueue
+ * points, the engine commits at tick cadence, and once a session stops every
+ * stroke drains oldest-first with a grouped ease-in fade. Nothing is ever
+ * written to the note; strokes live only in this overlay's engine and canvas.
  *
  * Geometry: the canvas covers the host's viewport box, while trail points are
  * recorded in the content element's coordinate space (which scrolls with the
  * text). Each frame is drawn translated by the content's current offset, so
  * trails stay glued to the text while scrolling and the canvas always sits
  * under the pointer.
+ *
+ * The tool layer and `TrailEngine` implement the behavior analyzed in
+ * TLDRAW_ANALYSIS.md independently; no tldraw source is part of this repo.
  */
 export abstract class BaseLaserOverlay {
 	private layer: HTMLDivElement | null = null
@@ -54,9 +56,9 @@ export abstract class BaseLaserOverlay {
 	private ctx: CanvasRenderingContext2D | null = null
 	private tag: HTMLElement | null = null
 
-	private manager: ScribbleManager | null = null
-	private lasering: LaseringState | null = null
-	private pathCache = new Map<string, ScribbleCacheEntry>()
+	private engine: TrailEngine | null = null
+	private feed: FeedState | null = null
+	private stamps = new Map<number, OutlineStamp>()
 
 	private raf: number | null = null
 	private lastTickAt: number | null = null
@@ -68,7 +70,7 @@ export abstract class BaseLaserOverlay {
 	private attached = false
 	private currentFileKey = ''
 	/** Last rendered snapshot; redrawn on scroll/resize. */
-	private lastScribbles: LaserScribble[] = []
+	private lastSnapshot: TrailStroke[] = []
 	private resizeObserver: ResizeObserver | null = null
 	/** Edge tab shown when the corner panel is hidden; null until attached. */
 	private panelTab: HTMLButtonElement | null = null
@@ -94,8 +96,8 @@ export abstract class BaseLaserOverlay {
 
 	destroy() {
 		this.stopLoop()
-		this.cancelLasering(true)
-		this.manager?.reset()
+		this.dropTrail(true)
+		this.engine?.clearAll()
 		for (const dispose of this.disposers) dispose()
 		this.disposers = []
 		this.unlockEditor()
@@ -110,7 +112,7 @@ export abstract class BaseLaserOverlay {
 		this.tag = null
 		this.panelTab = null
 		this.panelHidden = false
-		this.pathCache.clear()
+		this.stamps.clear()
 	}
 
 	// ---------------------------------------------------------------- attach
@@ -119,9 +121,9 @@ export abstract class BaseLaserOverlay {
 		if (this.attached) return
 		if (!this.cx.ready()) return
 
-		this.manager = new ScribbleManager(
+		this.engine = new TrailEngine(
 			this.plugin.settings.fadeMs,
-			(scribbles) => this.render(scribbles),
+			(strokes) => this.paint(strokes),
 			{
 				schedule: (handler, timeout) => window.setTimeout(handler, timeout),
 				cancel: (handle) => window.clearTimeout(handle),
@@ -259,7 +261,7 @@ export abstract class BaseLaserOverlay {
 		const down = (e: PointerEvent) => this.onPointerDown(e)
 		const move = (e: PointerEvent) => this.onPointerMove(e)
 		const up = (e: PointerEvent) => this.onPointerUp(e)
-		const lost = () => this.cancelLasering(false)
+		const lost = () => this.dropTrail(false)
 
 		canvas.addEventListener('pointerdown', down)
 		canvas.addEventListener('pointermove', move)
@@ -301,13 +303,14 @@ export abstract class BaseLaserOverlay {
 		if (e.isComposing) return
 
 		if (this.plugin.state.active) {
-			// LaserTool.onCancel semantics; exiting the tool releases typing.
+			// Esc/k ends the tool and also drops the in-flight stroke, so a
+			// canceled drag never leaves a trail behind.
 			if (e.key !== 'Escape' && e.key !== 'k' && e.key !== 'K') return
 			// While a modal (settings, quick switcher) is open, Esc belongs to it.
 			if (doc.querySelector('.modal-container')) return
 			e.preventDefault()
 			e.stopPropagation()
-			this.cancelLasering(false)
+			this.dropTrail(false)
 			this.plugin.state.exit()
 			return
 		}
@@ -346,7 +349,7 @@ export abstract class BaseLaserOverlay {
 		}
 	}
 
-	private pointFromEvent(e: PointerEvent): ScribblePoint {
+	private pointFromEvent(e: PointerEvent): TrailPoint {
 		const rect = this.cx.content().getBoundingClientRect()
 		return { x: e.clientX - rect.left, y: e.clientY - rect.top, z: 0.5 }
 	}
@@ -417,9 +420,9 @@ export abstract class BaseLaserOverlay {
 			this.startLoop()
 		} else {
 			this.unlockEditor()
-			// Tool release does not clear already-fading trails (matches tldraw
-			// switching away from the laser while scribbles dissolve).
-			this.cancelLasering(true)
+			// Tool release does not clear already-draining trails: they finish
+			// dissolving like they would with the tool still on.
+			this.dropTrail(true)
 			// The corner panel also re-opens for the next session.
 			this.setPanelHidden(false)
 		}
@@ -446,93 +449,79 @@ export abstract class BaseLaserOverlay {
 		const path = this.cx.fileKey()
 		if (path !== this.currentFileKey) {
 			this.currentFileKey = path
-			// A laser trail belongs to the file it was drawn over - clearing
-			// stale trails on file change mirrors tldraw's page-change rule.
-			this.manager?.reset()
+			// A trail belongs to the file it was drawn over: switching files
+			// drops what is on screen (fades included).
+			this.engine?.clearAll()
 		}
 	}
 
-	// ------------------------------------------------------------ tldraw tool
+	// --------------------------------------------------------------- trail tool
 
 	/**
-	 * LaserTool.getSessionId: reuse an active session, else start a new one
-	 * with tldraw's laser options (no self-consume, grouped ease-in fade).
+	 * One pointer drag = one trail stroke. Sessions outlive strokes: strokes
+	 * pressed within the session's hold time share it, so after the pointer
+	 * settles the whole run drains together. A session whose idle timer
+	 * already fired (or whose hold lapsed between presses) is replaced.
 	 */
-	private getSessionId(): string {
-		if (!this.manager) return ''
-		if (this.lasering && this.manager.isSessionActive(this.lasering.sessionId)) {
-			return this.lasering.sessionId
-		}
-		const options: ScribbleSessionOptions = {
-			selfConsume: false,
-			idleTimeoutMs: this.plugin.settings.delayMs,
-			fadeMode: 'grouped',
-			fadeEasing: 'ease-in',
-			fadeDurationMs: this.plugin.settings.fadeMs,
-		}
-		return this.manager.startSession(options)
-	}
+	private openTrail(): FeedState | null {
+		const engine = this.engine
+		if (!engine) return null
+		const live = this.feed && engine.isLive(this.feed.sessionId) ? this.feed.sessionId : null
 
-	/**
-	 * LaserTool.startScribble: sketch token in the requested style - tldraw
-	 * laser scribbles use the theme's `laser` color (pure red) by default,
-	 * 0.7 opacity, size 4 px, taper off. Palette names resolve to the host
-	 * document's current theme value at stroke time.
-	 */
-	private startScribble(): { sessionId: string; scribbleId: string } | null {
-		const manager = this.manager
-		if (!manager) return null
-		const sessionId = this.getSessionId()
-		const scribble = manager.addScribbleToSession(sessionId, {
+		const options: TrailSessionOptions = {
+			idleMs: this.plugin.settings.delayMs,
+			// The hold window between strokes and the drain length are the same
+			// knob on purpose: stopping = the hold timer firing.
+			fadeMs: this.plugin.settings.fadeMs,
+		}
+		const sessionId = live ?? engine.startSession(options)
+		const stroke = engine.addStroke(sessionId, {
 			color: resolveLaserColor(this.plugin.settings.color, this.isDark()),
 			opacity: this.plugin.settings.opacity,
 			size: this.plugin.settings.width,
 			taper: false,
 		})
-		return { sessionId, scribbleId: scribble.id }
+		return { sessionId, strokeId: stroke.id }
 	}
 
 	/**
-	 * Lasering.pushPointToScribble: keep feeding the current scribble, and open
-	 * a fresh session if the old one timed out mid-stroke (upstream #10125).
+	 * Feed pointer input into the open trail. If the session's hold expired
+	 * while the pointer was still down, start a new session whose stroke
+	 * continues seamlessly; the expired session drains on its own.
 	 */
-	private pushPointToScribble(point: ScribblePoint) {
-		if (!this.manager || !this.lasering) return
-		if (!this.manager.isSessionActive(this.lasering.sessionId)) {
-			const next = this.startScribble()
-			if (!next) return
-			this.lasering = next
+	private feedPoint(point: TrailPoint) {
+		const engine = this.engine
+		if (!engine || !this.feed) return
+		if (!engine.isLive(this.feed.sessionId)) {
+			this.feed = this.openTrail()
 		}
-		this.manager.addPointToSession(
-			this.lasering.sessionId,
-			this.lasering.scribbleId,
-			point.x,
-			point.y
-		)
+		if (!this.feed) return
+		engine.queuePoint(this.feed.sessionId, this.feed.strokeId, point.x, point.y)
 	}
 
-	/** Lasering.complete: mark the scribble done; the session fades on idle. */
-	private completeLasering() {
-		if (!this.manager || !this.lasering) return
-		if (this.manager.isSessionActive(this.lasering.sessionId)) {
-			this.manager.complete(this.lasering.scribbleId)
-		}
-		this.lasering = null
+	/** Pointer released: the trail stays on screen until the hold elapses. */
+	private releaseTrail() {
+		if (!this.engine || !this.feed) return
+		this.engine.finishStroke(this.feed.strokeId)
+		this.feed = null
 	}
 
-	/** Cancel the in-flight stroke. keepFading: true keeps the trail, false dismisses. */
-	private cancelLasering(keepFading: boolean) {
-		if (!this.manager || !this.lasering) return
-		if (!keepFading && this.manager.isSessionActive(this.lasering.sessionId)) {
-			this.manager.clearSession(this.lasering.sessionId)
+	/**
+	 * Stop feeding the pointer. keepHeld: true lets finished trails drain on
+	 * their own; false dismisses the session outright (tool exit / drag lost).
+	 */
+	private dropTrail(keepHeld: boolean) {
+		if (!this.engine || !this.feed) return
+		if (!keepHeld && this.engine.isLive(this.feed.sessionId)) {
+			this.engine.dismissSession(this.feed.sessionId)
 		}
-		this.lasering = null
+		this.feed = null
 	}
 
 	// ------------------------------------------------------------ frame loop
 
 	private startLoop() {
-		if (this.raf !== null || !this.manager) return
+		if (this.raf !== null || !this.engine) return
 		this.lastTickAt = null
 		this.raf = window.requestAnimationFrame(this.onFrame)
 	}
@@ -546,29 +535,37 @@ export abstract class BaseLaserOverlay {
 	}
 
 	private onFrame = (now: number) => {
-		if (this.plugin.state.active && this.manager && this.lasering) this.manager.extendSession(this.lasering.sessionId)
-		if (!this.manager) return
+		if (this.plugin.state.active && this.engine && this.feed) {
+			this.engine.extendSession(this.feed.sessionId)
+		}
+		if (!this.engine) return
 
 		const elapsed = this.lastTickAt === null ? 0 : Math.min(64, now - this.lastTickAt)
 		this.lastTickAt = now
 
-		this.manager.tick(elapsed)
+		this.engine.advance(elapsed)
 
-		const done = !this.plugin.state.active && !this.manager.hasLiveSessions()
+		const done = !this.plugin.state.active && this.engine.isQuiet()
 		if (done) {
 			this.raf = null
 			this.lastTickAt = null
-			this.render([])
+			this.paint([])
 			return
 		}
 		this.raf = window.requestAnimationFrame(this.onFrame)
 	}
 
-	// ------------------------------------------------------------ rendering
+	// ------------------------------------------------------------- rendering
 
-	/** ScribbleOverlayUtil.render port (canvas fill instead of overlay ctx). */
-	private render(scribbles: LaserScribble[]) {
-		this.lastScribbles = scribbles
+	/**
+	 * Paint the engine's latest snapshot. Points live in content space; each
+	 * frame is translated by the content element's current offset (see the
+	 * class comment). Outlines are cached per stroke until (points count, last
+	 * point, size, taper, phase) changes - trail evolution only touches the
+	 * newest stroke, so repeated frames mostly reuse their Path2D.
+	 */
+	private paint(snapshots: TrailStroke[]) {
+		this.lastSnapshot = snapshots
 		const canvas = this.canvas
 		const layer = this.layer
 		const ctx = this.ctx
@@ -582,123 +579,101 @@ export abstract class BaseLaserOverlay {
 		ctx.clearRect(0, 0, this.viewWidth, this.viewHeight)
 		ctx.translate(contentRect.left - layerRect.left, contentRect.top - layerRect.top)
 
-		for (const scribble of scribbles) {
-			const ptsLen = scribble.points.length
-			if (!ptsLen) continue
+		for (const stroke of snapshots) {
+			const count = stroke.points.length
+			if (!count) continue
 
-			const last = scribble.points[ptsLen - 1]
-			if (!last) continue
-			let path: Path2D
-			const cached = this.pathCache.get(scribble.id)
-			if (
-				cached &&
-				cached.len === ptsLen &&
-				cached.lastX === last.x &&
-				cached.lastY === last.y &&
-				cached.size === scribble.size &&
-				cached.taper === scribble.taper &&
-				cached.state === scribble.state
-			) {
-				path = cached.path
-			} else {
-				const outline = getStroke(this.toVecPairs(scribble.points), {
-					// zoom is 1 in the notes page: editor-space px == screen px
-					size: scribble.size,
-					start: { taper: scribble.taper, easing: LINEAR },
-					last: scribble.state === 'complete' || scribble.state === 'stopping',
-					simulatePressure: false,
-					streamline: STREAMLINE,
-				})
+			const tip = stroke.points[count - 1]
+			if (!tip) continue
 
-				let d: string
-				if (outline.length < 4) {
-					const r = scribble.size / 2
-					d = `M ${last.x - r},${last.y} a ${r},${r} 0 1,0 ${r * 2},0 a ${r},${r} 0 1,0 ${-r * 2},0`
-				} else {
-					d = getSvgPathFromOutline(outline)
-				}
-
-				path = new Path2D(d)
-				this.pathCache.set(scribble.id, {
-					len: ptsLen,
-					lastX: last.x,
-					lastY: last.y,
-					size: scribble.size,
-					taper: scribble.taper,
-					state: scribble.state,
-					path,
-				})
-				if (this.pathCache.size > CACHE_SIZE) this.pathCache.clear()
+			const stamp = `${stroke.phase}|${stroke.size}|${stroke.taper ? 1 : 0}|${count}|${tip.x}|${tip.y}`
+			let path = this.stamps.get(stroke.id)
+			if (!path) {
+				path = { stamp: '', path: new Path2D() }
+				this.stamps.set(stroke.id, path)
+			}
+			if (path.stamp !== stamp) {
+				path.path = this.buildOutline(stroke, tip)
+				path.stamp = stamp
+				if (this.stamps.size > CACHE_LIMIT) this.stamps.clear()
 			}
 
-			ctx.globalAlpha = scribble.opacity
-			ctx.fillStyle = scribble.color
-			ctx.fill(path)
+			ctx.globalAlpha = stroke.opacity
+			ctx.fillStyle = stroke.color
+			ctx.fill(path.path)
 		}
 		ctx.globalAlpha = 1
 	}
 
-	private toVecPairs(points: ScribblePoint[]): Array<{ x: number; y: number; pressure?: number }> {
-		return points.map((p) => ({ x: p.x, y: p.y, pressure: p.z }))
+	/** perfect-freehand outline of a stroke, or a filled dot when it is tiny. */
+	private buildOutline(stroke: TrailStroke, tip: TrailPoint): Path2D {
+		const outline = getStroke(
+			stroke.points.map((p) => ({ x: p.x, y: p.y, pressure: p.z })),
+			{
+				// zoom is 1 on the notes page: editor-space px == screen px
+				size: stroke.size,
+				start: { taper: stroke.taper, easing: LINEAR },
+				last: stroke.phase !== 'drawing',
+				simulatePressure: false,
+				streamline: STREAMLINE,
+			}
+		)
+
+		const path = new Path2D()
+		// Sparse outlines from a tap: draw the tip as a dot instead.
+		if (outline.length < 4) {
+			path.arc(tip.x, tip.y, Math.max(0.5, stroke.size / 2), 0, Math.PI * 2)
+			return path
+		}
+		path.moveTo(outline[0]![0], outline[0]![1])
+		for (let i = 1; i < outline.length; i++) {
+			const anchor = outline[i] as [number, number]
+			const next = outline[(i + 1) % outline.length] as [number, number]
+			path.quadraticCurveTo(
+				anchor[0],
+				anchor[1],
+				(anchor[0] + next[0]) / 2,
+				(anchor[1] + next[1]) / 2
+			)
+		}
+		return path
 	}
 
-	/** Redraw the last snapshot at the current scroll/size (scroll, resize). */
+	/** Repaint the last snapshot at the current scroll/size (scroll, resize). */
 	private renderLast() {
 		this.syncSize()
-		this.render(this.lastScribbles)
+		this.paint(this.lastSnapshot)
 	}
 
-	// ------------------------------------------------------------- interaction
+	// ------------------------------------------------------------ interaction
 
 	private onPointerDown(e: PointerEvent) {
 		if (!this.plugin.state.active || !this.canvas) return
 		e.preventDefault()
 		this.canvas.setPointerCapture(e.pointerId)
 
-		const started = this.startScribble()
-		if (!started) return
-		this.lasering = started
-		// Lasering.onEnter pushes the first point right away.
-		this.pushPointToScribble(this.pointFromEvent(e))
+		this.feed = this.openTrail()
+		if (!this.feed) return
+		// The first point lands without waiting for a move event.
+		this.feedPoint(this.pointFromEvent(e))
 		this.startLoop()
 	}
 
 	private onPointerMove(e: PointerEvent) {
-		if (!this.lasering) return
+		if (!this.feed) return
 		e.preventDefault()
 		const events =
 			typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [e]
 		const raws = events.length ? events : ([e] as PointerEvent[])
 		for (const raw of raws) {
-			this.pushPointToScribble(this.pointFromEvent(raw))
+			this.feedPoint(this.pointFromEvent(raw))
 		}
 	}
 
 	private onPointerUp(e: PointerEvent) {
-		if (!this.lasering) return
+		if (!this.feed) return
 		if (this.plugin.state.active) e.preventDefault()
-		this.completeLasering()
-		// LaserTool keeps the tool engaged; the user can lase again immediately.
+		this.releaseTrail()
+		// The tool stays engaged; the next press trails again immediately.
 	}
-}
-
-/**
- * getSvgPathFromPoints port: quadratic curves through consecutive outline
- * point midpoints, left open (tldraw's version for overlay strokes).
- */
-function getSvgPathFromOutline(stroke: number[][]): string {
-	const len = stroke.length
-	if (len < 3) return ''
-	const first = stroke[0]
-	if (!first) return ''
-
-	let d = `M ${first[0]} ${first[1]}`
-	for (let i = 1; i < len; i++) {
-		const [x0, y0] = stroke[i] as [number, number]
-		const next = stroke[(i + 1) % len] as [number, number]
-		const midX = (x0 + next[0]) / 2
-		const midY = (y0 + next[1]) / 2
-		d += ` Q ${x0} ${y0} ${midX} ${midY}`
-	}
-	return d
 }

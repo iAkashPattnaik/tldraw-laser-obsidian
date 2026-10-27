@@ -1,6 +1,6 @@
 # md-laser — Laser Pointer for Obsidian
 
-A tldraw-style **laser pointer** for Obsidian notes, ported from tldraw's laser feature. With the tool on, drag the pointer anywhere over an open note: a red trail follows you, holds when you lift the pointer, then fades away. Nothing is ever written to the note — the trail is transient overlay ink only.
+A **laser pointer for Obsidian notes** modeled on tldraw's laser feature. With the tool on, drag the pointer anywhere over an open note: a red trail follows you, holds when you lift the pointer, then fades away. Nothing is ever written to the note — the trail is transient overlay ink only and the implementation is independent of tldraw's code (see `TLDRAW_ANALYSIS.md` for the behavior analysis).
 
 ## What it does
 
@@ -71,7 +71,7 @@ Scripts (all via bun; `esbuild`/`node` sub-steps run inside bun):
 | `bun run dev` | Bundle with inline sourcemaps, watch mode |
 | `bun run build` | `tsc` type-check + production bundle (minified, sourcemap-less) |
 | `bun run lint` | ESLint with the official `eslint-plugin-obsidianmd` recommended config |
-| `bun run smoke` | Headless assertions for the ported `ScribbleManager` |
+| `bun run smoke` | Headless behavior contract for the trail engine (`src/trail-engine.ts`) |
 | `bun run loadcheck` | Loads the built `main.js` in Node (via a `.cjs` copy) with a stubbed `obsidian` module and runs `onload()` — the reproducible form of Obsidian's "failed to load plugin" |
 
 ### Why the previous build failed to load
@@ -84,7 +84,11 @@ Only two modules stay external in the bundle, both provided by Obsidian at runti
 
 ## How it works
 
-- `src/scribble.ts` — port of tldraw's `ScribbleManager` (session API, single-slot point queue with a ≥1px gate, 16ms item cadence, idle-timeout auto-stop, grouped ease-in fade). See `TLDRAW_ANALYSIS.md`.
-- `src/overlay.ts` — port of the `LaserTool` protocol (`Idle` / `Lasering` semantics) plus the `ScribbleOverlayUtil` render pipeline on a full-size `<canvas>` layer above the text; one `ViewPlugin` instance per CodeMirror editor.
+- `src/trail-engine.ts` — DOM-free engine owning transient trail sessions: staging between ticks with one commit per stroke per tick (sub-pixel input rejected), idle-timeout auto-stop, grouped ease-in drain of finished sessions. Contract covered by `scripts/smoke.ts`.
+- `src/base-overlay.ts` — the tool layer (pointer -> trail feeding, Esc/k exit, per-file reset) and the canvas painter (perfect-freehand outlines, per-stroke outline cache), shared by both editor and reading-view overlays.
+- `src/host.ts` — per-surface plumbing: one context for CodeMirror surfaces (`src/overlay.ts`, a `ViewPlugin` per editor), one for a markdown leaf's reading view (`src/preview.ts`, installed outside CodeMirror since reading mode has no editor).
 - `src/state.ts` — one global "laser on/off" switch shared across editors.
 - `src/main.ts`, `src/settings.ts` — plugin wiring, commands, ribbon, status bar, declarative settings.
+- `src/palette.ts` — tldraw default theme colors + the `laser` default, and the theme-resolving helpers behind the floating toolbar.
+
+The engine and tool layer reimplement the outward behavior documented in `TLDRAW_ANALYSIS.md` (which analyzes upstream tldraw, kept here as the design reference); no code is shared with tldraw.
