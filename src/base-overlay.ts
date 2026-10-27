@@ -148,6 +148,19 @@ export abstract class BaseLaserOverlay {
 		host.addEventListener('scroll', scroll, { capture: true, passive: true })
 		this.disposers.push(() => host.removeEventListener('scroll', scroll, { capture: true }))
 
+		// The overlaid canvas sits outside the scroll container, so while the
+		// tool is on native wheel events would dead-end (no scrollable
+		// ancestor). Forward them to the content's scroller; see onWheel. The
+		// listeners live on the hit-testable overlays only, so editors keep
+		// compositor scrolling whenever the tool is off.
+		const onWheel = (e: WheelEvent) => this.onWheel(e)
+		canvas.addEventListener('wheel', onWheel, { passive: false })
+		tag.addEventListener('wheel', onWheel, { passive: false })
+		this.disposers.push(() => {
+			canvas.removeEventListener('wheel', onWheel)
+			tag.removeEventListener('wheel', onWheel)
+		})
+
 		this.registerListeners()
 		this.syncSize()
 	}
@@ -291,6 +304,55 @@ export abstract class BaseLaserOverlay {
 	private pointFromEvent(e: PointerEvent): ScribblePoint {
 		const rect = this.cx.content().getBoundingClientRect()
 		return { x: e.clientX - rect.left, y: e.clientY - rect.top, z: 0.5 }
+	}
+
+	/**
+	 * Wheel forwarding while the tool is on: translate deltas the way the
+	 * browser's default wheel action would onto the content's scroll
+	 * container. Trails stay glued to the text because scrolling triggers the
+	 * capture scroll listener above.
+	 */
+	private onWheel(e: WheelEvent) {
+		if (!this.plugin.state.active) return
+		// Let pinch / app-level zoom stay native.
+		if (e.ctrlKey) return
+		if (e.deltaY === 0 && e.deltaX === 0) return
+		const scroller = this.findScroller()
+		if (!scroller) return
+		e.preventDefault()
+		const scale =
+			e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+				? scroller.clientHeight
+				: e.deltaMode === WheelEvent.DOM_DELTA_LINE
+					? this.linePx(scroller)
+					: 1
+		scroller.scrollTop += e.deltaY * scale
+		scroller.scrollLeft += e.deltaX * scale
+	}
+
+	/**
+	 * The scroll container of the content element: the first ancestor (from
+	 * content up to the host) that actually overflows and is CSS-scrollable.
+	 * `.cm-scroller` for editors, `.markdown-preview-view` for reading view.
+	 */
+	private findScroller(): HTMLElement | null {
+		const host = this.cx.host()
+		let el: HTMLElement | null = this.cx.content()
+		while (el && host.contains(el)) {
+			const overflowY = el.ownerDocument.defaultView?.getComputedStyle(el).overflowY
+			if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+				return el
+			}
+			el = el.parentElement
+		}
+		return null
+	}
+
+	private linePx(scroller: HTMLElement): number {
+		const doc = scroller.ownerDocument
+		if (!doc.defaultView) return 16
+		const px = parseFloat(doc.defaultView.getComputedStyle(scroller).lineHeight)
+		return Number.isFinite(px) ? px : 16
 	}
 
 	// ------------------------------------------------------------- lifecycle
