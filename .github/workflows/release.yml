@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 env:
-  PLUGIN_ID: md-laser
+  PLUGIN_ID: tldraw-laser-obsidian
 
 jobs:
   release:

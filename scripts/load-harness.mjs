@@ -101,7 +101,7 @@ const instance = new pluginClass(
 			},
 		},
 	},
-	{ id: 'md-laser' }
+	{ id: 'tldraw-laser-obsidian' }
 )
 try {
 	await instance.onload()

@@ -1,7 +1,7 @@
 {
-	"name": "md-laser",
+	"name": "tldraw-laser-obsidian",
 	"version": "1.2.0",
-	"description": "tldraw laser pointer for Obsidian notes. Drag a red pointer trail over the page; it holds, then fades. Nothing is written to the note.",
+	"description": "A laser pointer for Obsidian notes, modeled on tldraw's laser. Drag a trail over the page; it holds, then fades. Nothing is written to the note.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
